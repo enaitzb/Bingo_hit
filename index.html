@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bingo de Colores 5x5</title>
+<style>
+  :root {
+    --azul: #1e66f5;
+    --rojo: #e5252a;
+    --amarillo: #fdd835;
+    --blanco: #ffffff;
+    --negro: #111111;
+    --bg: #1b1b2f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, Arial, sans-serif;
+    background: var(--bg); color: #fff; padding: 16px;
+  }
+  h1 { text-align: center; margin: 8px 0 16px; }
+  .panel {
+    max-width: 900px; margin: 0 auto 20px; background: #26264a;
+    padding: 14px; border-radius: 12px;
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: end; justify-content: center;
+  }
+  label { display: flex; flex-direction: column; font-size: 13px; gap: 4px; }
+  select, input, button {
+    padding: 8px 10px; border-radius: 8px; border: none; font-size: 15px;
+  }
+  button { background: #ffb300; color: #000; font-weight: 700; cursor: pointer; }
+  button:hover { filter: brightness(1.1); }
+  button.sec { background: #5c5c9c; color: #fff; }
+  .chk { flex-direction: row; align-items: center; gap: 6px; }
+  .chk input { width: 18px; height: 18px; padding: 0; }
+
+  .draw {
+    max-width: 900px; margin: 0 auto 20px; text-align: center;
+  }
+  #bola {
+    display: inline-block; width: 90px; height: 90px; border-radius: 50%;
+    border: 4px solid #fff; margin: 8px; background: #444;
+    box-shadow: 0 4px 12px rgba(0,0,0,.5);
+  }
+  #historial { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; margin-top: 6px; }
+  #historial span { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff; display: inline-block; }
+
+  #tableros {
+    display: grid; gap: 20px; justify-content: center;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 340px));
+  }
+  .tablero { background: #fff; color: #000; padding: 10px; border-radius: 12px; }
+  .tablero h3 { margin: 0 0 8px; text-align: center; font-size: 15px; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .celda {
+    aspect-ratio: 1; border-radius: 8px; border: 2px solid #000;
+    cursor: pointer; position: relative; display: flex;
+    align-items: center; justify-content: center;
+    font-size: 28px; font-weight: 900;
+  }
+  .celda.azul { background: var(--azul); }
+  .celda.rojo { background: var(--rojo); }
+  .celda.amarillo { background: var(--amarillo); }
+  .celda.blanco { background: var(--blanco); }
+  .celda.negro { background: var(--negro); }
+  .celda.marcada::after {
+    content: "✓"; width: 70%; height: 70%; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.55); color: #fff; font-size: 22px;
+  }
+  .celda.negro.marcada::after { background: rgba(255,255,255,.7); color: #000; }
+  .celda.libre::before {
+    content: "★"; position: absolute; font-size: 26px; color: #fff;
+    text-shadow: 0 0 3px #000, 0 0 3px #000;
+  }
+
+  @media print {
+    body { background: #fff; color: #000; }
+    .panel, .draw, h1 { display: none; }
+    #tableros { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .tablero { break-inside: avoid; border: 1px solid #000; }
+  }
+</style>
+</head>
+<body>
+
+<h1>🎵 Bingo de Colores 5×5</h1>
+
+<div class="panel">
+  <label>Modo de combinación
+    <select id="modo">
+      <option value="reglas">Reglas: ≥3 colores por fila/columna/diagonal y los 5 colores en el cartón</option>
+      <option value="latino">Latino (cada color 1 vez por fila y columna)</option>
+      <option value="equilibrado">Equilibrado (5 de cada color)</option>
+      <option value="libre">Libre (totalmente aleatorio)</option>
+    </select>
+  </label>
+  <label>Nº de tableros
+    <input type="number" id="cantidad" value="4" min="1" max="100">
+  </label>
+  <label>Semilla (vacía = nueva cada vez)
+    <input type="text" id="semilla" placeholder="ej: fiesta2026">
+  </label>
+  <label>Semilla usada
+    <input type="text" id="semillaUsada" readonly>
+  </label>
+  <label class="chk"><input type="checkbox" id="libre"> Casilla central libre ★</label>
+  <button id="btnGenerar">Generar tableros</button>
+  <button class="sec" id="btnImprimir">Imprimir</button>
+</div>
+
+<div class="draw">
+  <button id="btnBola">🎱 Sacar color</button>
+  <button class="sec" id="btnReset">Reiniciar bolas</button>
+  <div><span id="bola"></span></div>
+  <div id="historial"></div>
+</div>
+
+<div id="tableros"></div>
+
+<script>
+const COLORES = ["azul", "rojo", "amarillo", "blanco", "negro"];
+const HEX = { azul:"#1e66f5", rojo:"#e5252a", amarillo:"#fdd835", blanco:"#ffffff", negro:"#111111" };
+
+// Generador pseudoaleatorio con semilla (mulberry32)
+function hashStr(s) {
+  let h = 1779033703 ^ s.length;
+  for (let i = 0; i < s.length; i++) {
+    h = Math.imul(h ^ s.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return h >>> 0;
+}
+function crearRng(semilla) {
+  let a = semilla ? hashStr(semilla) : (Math.random() * 2 ** 32) >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function barajar(arr, rng) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Modo latino: cuadrado latino aleatorio por backtracking
+function tableroLatino(rng) {
+  const g = Array.from({ length: 5 }, () => Array(5).fill(null));
+  function resolver(pos) {
+    if (pos === 25) return true;
+    const f = Math.floor(pos / 5), c = pos % 5;
+    for (const col of barajar(COLORES, rng)) {
+      let ok = true;
+      for (let k = 0; k < 5; k++) {
+        if (g[f][k] === col || g[k][c] === col) { ok = false; break; }
+      }
+      if (ok) {
+        g[f][c] = col;
+        if (resolver(pos + 1)) return true;
+        g[f][c] = null;
+      }
+    }
+    return false;
+  }
+  resolver(0);
+  return g;
+}
+
+// Modo equilibrado: 5 casillas de cada color repartidas al azar
+function tableroEquilibrado(rng) {
+  const bolsa = [];
+  COLORES.forEach(c => { for (let i = 0; i < 5; i++) bolsa.push(c); });
+  const m = barajar(bolsa, rng);
+  return Array.from({ length: 5 }, (_, f) => m.slice(f * 5, f * 5 + 5));
+}
+
+// Modo libre
+function tableroLibre(rng) {
+  return Array.from({ length: 5 }, () =>
+    Array.from({ length: 5 }, () => COLORES[Math.floor(rng() * 5)]));
+}
+
+// Modo reglas: >=3 colores distintos en cada fila, columna y las 2 diagonales,
+// y los 5 colores presentes al menos una vez en el cartón.
+function cumpleReglas(t) {
+  const lineas = [];
+  for (let i = 0; i < 5; i++) {
+    lineas.push(t[i]);                       // fila
+    lineas.push(t.map(f => f[i]));           // columna
+  }
+  lineas.push(t.map((f, i) => f[i]));        // diagonal principal
+  lineas.push(t.map((f, i) => f[4 - i]));    // diagonal secundaria
+  if (!lineas.every(l => new Set(l).size >= 3)) return false;
+  return new Set(t.flat()).size === 5;
+}
+function tableroReglas(rng) {
+  for (let i = 0; i < 100000; i++) {
+    const t = tableroLibre(rng);
+    if (cumpleReglas(t)) return t;
+  }
+  return tableroEquilibrado(rng);
+}
+
+function generarTablero(modo, rng) {
+  if (modo === "reglas") return tableroReglas(rng);
+  if (modo === "latino") return tableroLatino(rng);
+  if (modo === "equilibrado") return tableroEquilibrado(rng);
+  return tableroLibre(rng);
+}
+
+function generar() {
+  const modo = document.getElementById("modo").value;
+  const n = Math.max(1, Math.min(100, parseInt(document.getElementById("cantidad").value) || 1));
+  const libre = document.getElementById("libre").checked;
+  let semilla = document.getElementById("semilla").value.trim();
+  const conSemilla = semilla !== "";
+  if (!conSemilla) {
+    // Semilla nueva y aleatoria en cada pulsación
+    const buf = new Uint32Array(2);
+    crypto.getRandomValues(buf);
+    semilla = buf[0].toString(36) + buf[1].toString(36);
+  }
+  document.getElementById("semillaUsada").value = semilla;
+  const rng = crearRng(semilla);
+
+  const contenedor = document.getElementById("tableros");
+  contenedor.innerHTML = "";
+  const vistos = new Set();
+  let intentos = 0;
+  let creados = 0;
+
+  while (creados < n && intentos < n * 200) {
+    intentos++;
+    const t = generarTablero(modo, rng);
+    const clave = t.map(f => f.join(",")).join("|");
+    if (vistos.has(clave)) continue; // no repetir en esta tanda
+    // Sin semilla fija: tampoco repetir tableros de tandas anteriores
+    if (!conSemilla && TODOS_VISTOS.has(clave)) continue;
+    vistos.add(clave);
+    if (!conSemilla) TODOS_VISTOS.add(clave);
+    creados++;
+    contenedor.appendChild(dibujar(t, creados, libre));
+  }
+}
+const TODOS_VISTOS = new Set();
+
+function dibujar(t, num, libre) {
+  const div = document.createElement("div");
+  div.className = "tablero";
+  div.innerHTML = `<h3>Tablero #${num}</h3>`;
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  t.forEach((fila, f) => fila.forEach((col, c) => {
+    const celda = document.createElement("div");
+    celda.className = "celda " + col;
+    celda.dataset.color = col;
+    if (libre && f === 2 && c === 2) celda.classList.add("libre", "marcada");
+    celda.addEventListener("click", () => celda.classList.toggle("marcada"));
+    grid.appendChild(celda);
+  }));
+  div.appendChild(grid);
+  return div;
+}
+
+// Sacar colores
+const historial = [];
+function sacarColor() {
+  const col = COLORES[Math.floor(Math.random() * COLORES.length)];
+  historial.push(col);
+  const bola = document.getElementById("bola");
+  bola.style.background = HEX[col];
+  const h = document.getElementById("historial");
+  const s = document.createElement("span");
+  s.style.background = HEX[col];
+  h.appendChild(s);
+  // Marcar automáticamente opcional: se deja manual para que jueguen los participantes
+}
+function reiniciarBolas() {
+  historial.length = 0;
+  document.getElementById("historial").innerHTML = "";
+  document.getElementById("bola").style.background = "#444";
+}
+
+document.getElementById("btnGenerar").addEventListener("click", generar);
+document.getElementById("btnImprimir").addEventListener("click", () => window.print());
+document.getElementById("btnBola").addEventListener("click", sacarColor);
+document.getElementById("btnReset").addEventListener("click", reiniciarBolas);
+
+generar();
+</script>
+</body>
+</html>
